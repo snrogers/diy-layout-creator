@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import javax.imageio.ImageIO;
 import org.diylc.appframework.miscutils.ConfigurationManager;
+import org.diylc.appframework.miscutils.IConfigurationManager;
 import org.diylc.appframework.miscutils.InMemoryConfigurationManager;
 import org.diylc.common.ComponentType;
 import org.diylc.common.DrawOption;
@@ -40,35 +41,54 @@ import org.diylc.netlist.Netlist;
 import org.diylc.presenter.Presenter;
 
 /**
- * Thin, single-session wrapper around a headless {@link Presenter}.
+ * Thin, single-session wrapper around a {@link Presenter}.
  *
- * <p>This is the engine the MCP tools call. It reuses the exact same controller the Swing UI uses
- * ({@link Presenter} + a no-op {@link DummyView}), so behaviour — grid snapping, control-point/node
- * resolution, serialization, rendering — is identical to the desktop app. No GUI is created.
+ * <p>This is the engine the MCP tools call. It reuses the same controller the Swing UI uses, so
+ * behaviour — grid snapping, control-point/node resolution, serialization, rendering — is identical
+ * to the desktop app.
  *
- * <p>State (the currently loaded {@link Project} and the current selection) lives in the
- * {@link Presenter} and persists across MCP tool calls for the lifetime of the server process.
+ * <p>Two modes:
+ * <ul>
+ *   <li><b>Headless</b> (default ctor): builds a {@link Presenter} over a no-op {@link DummyView}; no
+ *       GUI. Used for pure agent/CI runs.
+ *   <li><b>Headed</b> ({@link #forPresenter}): drives the {@code Presenter} of a live {@code MainFrame}
+ *       so the agent and a human co-edit one shared project. The caller marshals every method onto the
+ *       Swing EDT (see {@link EdtExecutor}); this class does no locking of its own.
+ * </ul>
  *
- * <p>Threading: the MCP server processes requests on a single thread, so this class is not
- * synchronized. If concurrency is added, guard all methods — Swing/AWT geometry is not thread-safe.
+ * <p>Agent tools speak <b>project coordinates</b>. Placement converts them to canvas pixels with
+ * {@link #toCanvas} using the Presenter's live extra-space and zoom, so it lands correctly regardless
+ * of how the human has zoomed or panned, and without mutating any view config.
  */
 public class DiylcEngine {
 
   private final Presenter presenter;
+  // The same config manager the Presenter reads — so our extra-space check mirrors scalePoint exactly.
+  private final IConfigurationManager<?> configManager;
 
+  /** Headless: own Presenter over a DummyView, fresh empty project. */
   public DiylcEngine() {
     // The configuration manager backs every Presenter operation (snap-to-grid, defaults, …) and must
     // be initialized before the Presenter is constructed, or its config map is null. Mirrors TestBase.
     ConfigurationManager.getInstance().initialize("diylc-mcp");
-    // Disable the canvas margin so the coordinates an agent passes map 1:1 onto project pixels
-    // (otherwise scalePoint() shifts everything by the extra-space margin). The Presenter reads from
-    // InMemoryConfigurationManager — the same instance passed below — so the flag must be set there.
-    InMemoryConfigurationManager.getInstance()
-        .writeValue(org.diylc.common.IPlugInPort.EXTRA_SPACE_KEY, false);
+    this.configManager = InMemoryConfigurationManager.getInstance();
     // importVariantsAndBlocks=false: don't touch the user's on-disk DIYLC config in a server.
-    this.presenter = new Presenter(new DummyView(), InMemoryConfigurationManager.getInstance(), false);
-    this.presenter.setZoomLevel(1d); // 1:1 px so click coordinates equal project coordinates
+    this.presenter = new Presenter(new DummyView(), configManager, false);
     this.presenter.createNewProject();
+  }
+
+  /** Headed: drive an existing Presenter (e.g. {@code mainFrame.getPresenter()}). */
+  private DiylcEngine(Presenter presenter, IConfigurationManager<?> configManager) {
+    this.presenter = presenter;
+    this.configManager = configManager;
+  }
+
+  /**
+   * Wrap a live frame's Presenter for co-editing. The frame owns config/project lifecycle. MainFrame
+   * builds its Presenter over {@link ConfigurationManager#getInstance()}, so pass that here.
+   */
+  public static DiylcEngine forPresenter(Presenter presenter) {
+    return new DiylcEngine(presenter, ConfigurationManager.getInstance());
   }
 
   // --- Project lifecycle -------------------------------------------------------------------------
@@ -235,15 +255,33 @@ public class DiylcEngine {
     presenter.setNewComponentTypeSlot(type, null, null, false);
     int clicks = singleClick ? 1 : points.length;
     for (int i = 0; i < clicks; i++) {
-      Point p = new Point(points[i][0], points[i][1]);
+      Point p = toCanvas(points[i][0], points[i][1]);
       // DIYLC fixes a point-by-point component's next control point on mouse MOVE, then commits it
-      // on the following click. Headless, we must emulate the move before each click after the first,
-      // or every control point collapses onto the first one.
+      // on the following click. We must emulate the move before each click after the first, or every
+      // control point collapses onto the first one.
       if (i > 0) {
         presenter.mouseMoved(p, false, false, false);
       }
       presenter.mouseClicked(p, 1 /* left */, false, false, false, 1);
     }
+  }
+
+  /**
+   * Convert a project-space point to a canvas (mouse) pixel, inverting {@code Presenter.scalePoint}:
+   * {@code canvas = (project + extraSpacePx) * zoom}. The pixel margin must come from
+   * {@code DrawingManager.getExtraSpace(project)} — the value scalePoint actually uses — not the
+   * public {@code Presenter.getExtraSpace()}, which returns a unit-converted display value. Read live
+   * each call, so placement is correct whatever the human's view state, and nothing is mutated.
+   */
+  private Point toCanvas(int projectX, int projectY) {
+    double extraSpace =
+        isExtraSpaceEnabled() ? presenter.getDrawingManager().getExtraSpace(presenter.getCurrentProject()) : 0d;
+    double zoom = presenter.getZoomLevel();
+    return new Point(Coordinates.toCanvas(projectX, extraSpace, zoom), Coordinates.toCanvas(projectY, extraSpace, zoom));
+  }
+
+  private boolean isExtraSpaceEnabled() {
+    return configManager.readBoolean(org.diylc.common.IPlugInPort.EXTRA_SPACE_KEY, true);
   }
 
   public void deleteSelection() {

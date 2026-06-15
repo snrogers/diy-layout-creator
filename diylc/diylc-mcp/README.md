@@ -1,12 +1,17 @@
 # diylc-mcp — DIYLC Model Context Protocol server
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes a **headless DIYLC
-engine** to AI agents, so an agent can open, inspect, edit, render, and save `.diy` projects through
-tool calls.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes a **DIYLC engine** to
+AI agents, so an agent can open, inspect, edit, render, and save `.diy` projects through tool calls.
 
-It embeds the real `diylc-core` controller (`Presenter` + a no-op `DummyView`) — the exact same
-engine the Swing app drives — so grid snapping, control-point/node resolution, netlist analysis,
-serialization, and rendering behave identically to the desktop application. No GUI is created.
+It embeds the real `diylc-core` controller (`Presenter`) — the exact same engine the Swing app
+drives — so grid snapping, control-point/node resolution, netlist analysis, serialization, and
+rendering behave identically to the desktop application.
+
+Two modes:
+- **Headless** (default) — `Presenter` over a no-op `DummyView`; no GUI. For agent/CI runs.
+- **Headed** — drives the `Presenter` of a live `MainFrame` so a human and the agent **co-edit one
+  shared project**: tool calls update the real window in real time, and the human's edits show up in
+  the agent's next `describe_project`. See [Headed mode](#headed-mode--co-editing).
 
 ## Build
 
@@ -31,6 +36,44 @@ java -Djava.awt.headless=true \
   --add-opens java.desktop/java.awt.geom=ALL-UNNAMED \
   -jar diylc-mcp/target/diylc-mcp.jar
 ```
+
+## Headed mode — co-editing
+
+Headed mode brings up the real DIYLC `MainFrame` and points the MCP tools at **its** `Presenter`, so
+the agent and a human edit one shared project live. Activate it with `-Dorg.diylc.mcp.headed=true`
+(or `DIYLC_MCP_HEADED=1`), and **omit** `-Djava.awt.headless=true` — a display is required:
+
+```bash
+java -Dorg.diylc.mcp.headed=true \
+  --add-opens java.base/java.util=ALL-UNNAMED \
+  --add-opens java.base/java.lang=ALL-UNNAMED \
+  --add-opens java.base/java.text=ALL-UNNAMED \
+  --add-opens java.desktop/java.awt=ALL-UNNAMED \
+  --add-opens java.desktop/java.awt.font=ALL-UNNAMED \
+  --add-opens java.desktop/java.awt.geom=ALL-UNNAMED \
+  -jar diylc-mcp/target/diylc-mcp.jar
+```
+
+How it works:
+- **Shared Presenter.** The engine drives `mainFrame.getPresenter()`; agent edits dispatch the same
+  repaint events the GUI observes, so the window updates as the agent works, and `describe_project`
+  reflects the human's edits too.
+- **EDT threading.** Each tool call runs in full on the Swing Event Dispatch Thread via
+  `invokeAndWait`, so it is atomic against the human's UI events and never touches the `Presenter`
+  off-thread.
+- **Coordinates.** Tool coordinates are project pixels; placement converts to canvas pixels using the
+  Presenter's live extra-space + zoom (`Coordinates.toCanvas`), so it lands correctly no matter how
+  the human has zoomed/panned — and no view config is mutated.
+- **Lifecycle.** One process: File→Exit (human) ends the server; MCP client disconnect (stdin EOF)
+  shuts down the JVM and closes the window.
+
+Caveats (by design):
+- Agent edit tools operate on the shared selection — running `select_all`/`set_property` **clobbers
+  the human's current selection or armed component**.
+- It is the real app: AutoSave writes `~/diylc/backup`, and cloud/chatbot menus are present.
+- The agent is **not** pushed the human's changes; it sees them only on its next read tool.
+
+If headed is requested with no display (`java.awt.headless`), the server exits with a clear message.
 
 ### MCP client config (e.g. Claude Desktop / Claude Code)
 
@@ -76,25 +119,31 @@ One long-lived project (the "session") is held in memory across calls.
 
 ### Coordinates
 
-Coordinates are project pixels. The server disables the canvas extra-space margin and pins zoom to
-1.0, so the `[x,y]` you pass to `diylc_add_component` is exactly where a control point lands (e.g.
-`[[60,60],[140,60]]` → a horizontal resistor 80px wide). Default grid is `0.1in`; placement snaps to
-it.
+Coordinates are project pixels. Placement converts them to canvas pixels per call via
+`Coordinates.toCanvas` using the Presenter's live extra-space margin and zoom (the inverse of
+`Presenter.scalePoint`), so the `[x,y]` you pass to `diylc_add_component` lands at that project point
+regardless of view state — e.g. `[[60,60],[140,60]]` → a horizontal resistor 80px wide. Default grid
+is `0.1in`; placement snaps to it.
 
 ## Architecture
 
 ```
-agent ──stdio JSON-RPC──▶ McpServer ──▶ ToolRegistry ──▶ DiylcEngine ──▶ Presenter (headless)
-                                                                            └─ diylc-core / diylc-library
+agent ─stdio JSON-RPC→ McpServer ─(EdtExecutor)→ ToolRegistry → DiylcEngine → Presenter
+                                                                                ├─ DummyView        (headless)
+                                                                                └─ live MainFrame   (headed)
 ```
 
 - **`McpServer`** — the stdio JSON-RPC loop: `initialize`, `tools/list`, `tools/call`. Captures the
   real stdout for protocol frames and redirects `System.out` to stderr so DIYLC's logging never
-  corrupts the channel.
+  corrupts the channel. Reads the headed flag at boot; in headed mode it builds the `MainFrame` on the
+  EDT and ties JVM lifecycle to stdin.
+- **`EdtExecutor`** — runs each tool call on the Swing EDT (headed) or inline (headless).
 - **`ToolRegistry`** — declares each `Tool` (name, JSON-Schema, handler) bound to one engine.
-- **`DiylcEngine`** — the headless `Presenter` wrapper and session state. Edit operations reuse the
-  same slot + click flow as the GUI (`setNewComponentTypeSlot` → `mouseMoved`/`mouseClicked`), so
-  behaviour matches the app exactly.
+- **`DiylcEngine`** — the `Presenter` wrapper and session state (own `DummyView` Presenter when
+  headless; a live frame's Presenter via `forPresenter` when headed). Edit operations reuse the same
+  slot + click flow as the GUI (`setNewComponentTypeSlot` → `mouseMoved`/`mouseClicked`), so behaviour
+  matches the app exactly.
+- **`Coordinates`** — pure project↔canvas math, unit-tested without a display.
 
 ### Extending toward full GUI parity
 
@@ -114,4 +163,6 @@ parity categories; the registry is the single extension point.
   object-valued properties (e.g. custom editors) are not yet handled.
 - **Undo/redo, building blocks, variants, export (PDF/Gerber/image-file), layers** are not yet
   exposed — they are mechanical additions following the pattern above.
-- A single in-memory session; no multi-document or concurrent-request support.
+- A single session; no multi-document or concurrent-request support.
+- **Headed mode** co-editing caveats (selection clobbering, no push of human edits to the agent,
+  real-app side effects) are listed under [Headed mode](#headed-mode--co-editing).
