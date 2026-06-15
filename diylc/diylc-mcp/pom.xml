@@ -30,6 +30,12 @@
             <groupId>org.diylc</groupId>
             <artifactId>diylc-library</artifactId>
         </dependency>
+        <!-- Headed mode reuses the real Swing MainFrame; flag-gated at runtime but always bundled so a
+             single diylc-mcp.jar runs both modes. Pulls the Swing UI stack into the jar. -->
+        <dependency>
+            <groupId>org.diylc</groupId>
+            <artifactId>diylc-swing</artifactId>
+        </dependency>
 
         <!-- JSON-RPC plumbing for the MCP stdio transport. -->
         <dependency>
@@ -79,6 +85,29 @@
             <version>1.0</version>
             <scope>system</scope>
             <systemPath>${project.basedir}/../lib/java-http-proxy.jar</systemPath>
+        </dependency>
+        <!-- Swing-only bundled jars (system scope is not transitive from diylc-swing, so re-declare
+             the ones MainFrame needs at runtime; copy-dependencies + antrun merge them into the jar). -->
+        <dependency>
+            <groupId>org.diylc.local</groupId>
+            <artifactId>jep-2.4.1</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../lib/jep-2.4.1.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>org.diylc.local</groupId>
+            <artifactId>svgSalamander-1.1.2.4</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../lib/svgSalamander-1.1.2.4.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>org.diylc.local</groupId>
+            <artifactId>swing-framework</artifactId>
+            <version>1.1</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../lib/swing-framework-1.1.jar</systemPath>
         </dependency>
 
         <dependency>
