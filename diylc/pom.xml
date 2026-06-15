@@ -16,6 +16,7 @@
         <module>diylc-core</module>
         <module>diylc-library</module>
         <module>diylc-swing</module>
+        <module>diylc-mcp</module>
     </modules>
     
     <properties>
