@@ -49,3 +49,17 @@ The plugin model: the UI and features register against `IPlugInPort`/`Presenter`
 ## CI
 
 `.github/workflows/tests.yml` runs `cd diylc && mvn -B test` on push/PR to `master`. Keep that green.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as local markdown under `.scratch/<feature>/` (no remote tracker). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles with default names, recorded as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
