@@ -17,9 +17,8 @@ JAR="${1:-$HERE/../target/diylc-mcp.jar}"
 [ -n "${DISPLAY:-}" ] || { echo "FAIL: no DISPLAY set — headed mode needs a display"; exit 1; }
 
 OUT="$(mktemp)"
-# headed flag ON; java.awt.headless deliberately NOT set.
-JVM=(-Dorg.diylc.mcp.headed=true
-  --add-opens java.base/java.util=ALL-UNNAMED
+# java.awt.headless deliberately NOT set, so start_session(headed=true) can open a window.
+JVM=(--add-opens java.base/java.util=ALL-UNNAMED
   --add-opens java.base/java.lang=ALL-UNNAMED
   --add-opens java.base/java.text=ALL-UNNAMED
   --add-opens java.desktop/java.awt=ALL-UNNAMED
@@ -28,9 +27,11 @@ JVM=(-Dorg.diylc.mcp.headed=true
 
 CONVO=$(cat <<'JSON'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":1.5,"method":"tools/call","params":{"name":"diylc_start_session","arguments":{"headed":true}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"diylc_add_component","arguments":{"type":"Resistor","points":[[60,60],[140,60]]}}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"diylc_add_component","arguments":{"type":"Film Capacitor (Radial)","points":[[140,60],[140,160]]}}}
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"diylc_describe_project","arguments":{}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"diylc_end_session","arguments":{"force":true}}}
 JSON
 )
 

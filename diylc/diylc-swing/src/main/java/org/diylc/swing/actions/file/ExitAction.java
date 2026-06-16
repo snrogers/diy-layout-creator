@@ -5,6 +5,7 @@ import javax.swing.AbstractAction;
 
 import org.diylc.common.IPlugInPort;
 import org.diylc.swing.ActionFactory;
+import org.diylc.swing.gui.MainFrame;
 import org.diylc.utils.IconLoader;
 
 public class ExitAction extends AbstractAction {
@@ -24,7 +25,7 @@ public class ExitAction extends AbstractAction {
   public void actionPerformed(ActionEvent e) {
     ActionFactory.LOG.info("ExitAction triggered");
     if (plugInPort.allowFileAction()) {
-      System.exit(0);
+      MainFrame.requestExit();
     }
   }
 }

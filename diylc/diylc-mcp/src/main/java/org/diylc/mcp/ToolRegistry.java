@@ -18,23 +18,30 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Builds and holds every {@link Tool} the server exposes, all bound to one {@link DiylcEngine}
- * session.
+ * Builds and holds every {@link Tool} the server exposes, all bound to one {@link SessionManager}.
  *
- * <p>The tools are grouped into read, edit, and "GUI parity" sections. The set here is a
- * representative, working slice — extending toward full parity is mechanical: add a {@code reg(...)}
- * call wrapping the corresponding {@link org.diylc.presenter.Presenter} verb. See diylc-mcp/README.md.
+ * <p>{@code diylc_start_session} / {@code diylc_end_session} manage the session; every other tool
+ * reaches the engine through {@link #engine()} (i.e. {@link SessionManager#requireEngine()}), which
+ * errors when no session is open. Tools are grouped into session, read, edit, and "GUI parity"
+ * sections; extending toward full parity is mechanical — add a {@code reg(...)} call wrapping the
+ * corresponding {@link org.diylc.presenter.Presenter} verb. See diylc-mcp/README.md.
  */
 public class ToolRegistry {
 
   private final Map<String, Tool> tools = new LinkedHashMap<>();
-  private final DiylcEngine engine;
+  private final SessionManager sessions;
 
-  public ToolRegistry(DiylcEngine engine) {
-    this.engine = engine;
+  public ToolRegistry(SessionManager sessions) {
+    this.sessions = sessions;
+    registerSessionTools();
     registerReadTools();
     registerEditTools();
     registerParityTools();
+  }
+
+  /** The engine for the open session; errors (reported to the agent) if no session is open. */
+  private DiylcEngine engine() {
+    return sessions.requireEngine();
   }
 
   public List<Tool> all() {
@@ -47,48 +54,64 @@ public class ToolRegistry {
 
   // --- registration ------------------------------------------------------------------------------
 
+  private void registerSessionTools() {
+    reg("diylc_start_session",
+        "Open a DIYLC editing session. headed=true opens a live app window for human co-editing (needs "
+            + "a display); headed=false (default) is headless. Must be called before any other tool. "
+            + "Errors if a session is already open.",
+        objectSchema(Map.of("headed", boolProp("Open a live GUI window for co-editing (default false)")), List.of()),
+        args -> sessions.startSession(optBool(args, "headed", false)));
+
+    reg("diylc_end_session",
+        "Close the open session (and its window, if headed). The server keeps running; open another "
+            + "with diylc_start_session. Errors if no session is open, or if there are unsaved changes "
+            + "and force is not set.",
+        objectSchema(Map.of("force", boolProp("Discard unsaved changes and close anyway (default false)")), List.of()),
+        args -> sessions.endSession(optBool(args, "force", false)));
+  }
+
   private void registerReadTools() {
     reg("diylc_new_project", "Discard the current project and start an empty one.", noArgs(), args -> {
-      engine.newProject();
+      engine().newProject();
       return "New empty project created.";
     });
 
     reg("diylc_open_project", "Load a .diy project file from disk, replacing the current project.",
         objectSchema(Map.of("path", stringProp("Absolute path to a .diy file")), List.of("path")), args -> {
-          engine.openProject(reqString(args, "path"));
-          return "Opened " + engine.currentFileName();
+          engine().openProject(reqString(args, "path"));
+          return "Opened " + engine().currentFileName();
         });
 
     reg("diylc_describe_project",
         "Return a structured summary of the current project: metadata and every component with its "
             + "type, name, value, and control points (with node names).",
-        noArgs(), args -> engine.describeProject());
+        noArgs(), args -> engine().describeProject());
 
     reg("diylc_list_component_types",
         "List component types available to instantiate, grouped by category. Optionally filter by "
             + "category substring.",
         objectSchema(Map.of("category", stringProp("Optional category name substring filter")), List.of()),
-        args -> engine.listComponentTypes(optString(args, "category", null)));
+        args -> engine().listComponentTypes(optString(args, "category", null)));
 
     reg("diylc_get_netlist",
         "Compute the netlist(s) for the current project. Returns one textual netlist per switch-"
             + "position combination when includeSwitches is true.",
         objectSchema(Map.of("includeSwitches", boolProp("Expand switch positions (default false)")), List.of()),
-        args -> engine.getNetlist(optBool(args, "includeSwitches", false)));
+        args -> engine().getNetlist(optBool(args, "includeSwitches", false)));
 
     reg("diylc_render_png",
         "Render the current project to a PNG image so the agent can visually inspect the layout.",
         objectSchema(Map.of("includeGrid", boolProp("Draw the grid (default false)")), List.of()),
-        args -> ToolResult.of(McpContent.image(engine.renderPngBase64(optBool(args, "includeGrid", false)), "image/png")));
+        args -> ToolResult.of(McpContent.image(engine().renderPngBase64(optBool(args, "includeGrid", false)), "image/png")));
 
     reg("diylc_get_selection", "Return the currently selected components (same shape as describe).",
-        noArgs(), args -> engine.selectionSummary());
+        noArgs(), args -> engine().selectionSummary());
   }
 
   private void registerEditTools() {
     reg("diylc_save_project", "Save the current project to a .diy file on disk.",
         objectSchema(Map.of("path", stringProp("Absolute path to write the .diy file")), List.of("path")), args -> {
-          engine.saveProject(reqString(args, "path"));
+          engine().saveProject(reqString(args, "path"));
           return "Saved to " + reqString(args, "path");
         });
 
@@ -109,12 +132,12 @@ public class ToolRegistry {
             List.of("type", "points")),
         args -> {
           String type = reqString(args, "type");
-          engine.addComponent(type, reqPoints(args, "points"));
+          engine().addComponent(type, reqPoints(args, "points"));
           return "Placed " + type + ".";
         });
 
     reg("diylc_delete_selection", "Delete all currently selected components.", noArgs(), args -> {
-      engine.deleteSelection();
+      engine().deleteSelection();
       return "Deleted selection.";
     });
 
@@ -126,43 +149,43 @@ public class ToolRegistry {
             "value", stringProp("New value (parsed by the component's property type)")),
             List.of("name", "value")),
         args -> {
-          int n = engine.setSelectionProperty(reqString(args, "name"), reqString(args, "value"));
+          int n = engine().setSelectionProperty(reqString(args, "name"), reqString(args, "value"));
           return "Updated property on " + n + " component(s).";
         });
   }
 
   private void registerParityTools() {
     reg("diylc_select_all", "Select all components in the project.", noArgs(), args -> {
-      engine.selectAll();
+      engine().selectAll();
       return "Selected all.";
     });
 
     reg("diylc_select_matching",
         "Select components matching a search expression (same syntax as the DIYLC search box).",
         objectSchema(Map.of("criteria", stringProp("Search expression")), List.of("criteria")), args -> {
-          engine.selectMatching(reqString(args, "criteria"));
+          engine().selectMatching(reqString(args, "criteria"));
           return "Selection updated.";
         });
 
     reg("diylc_group_selection", "Group the selected components into one logical unit.", noArgs(), args -> {
-      engine.groupSelection();
+      engine().groupSelection();
       return "Grouped selection.";
     });
 
     reg("diylc_ungroup_selection", "Ungroup the selected group(s).", noArgs(), args -> {
-      engine.ungroupSelection();
+      engine().ungroupSelection();
       return "Ungrouped selection.";
     });
 
     reg("diylc_rotate_selection", "Rotate the selection. direction: 1 = clockwise, -1 = counter-clockwise.",
         objectSchema(Map.of("direction", intProp("1 (CW) or -1 (CCW)")), List.of("direction")), args -> {
-          engine.rotateSelection(reqInt(args, "direction"));
+          engine().rotateSelection(reqInt(args, "direction"));
           return "Rotated selection.";
         });
 
     reg("diylc_mirror_selection", "Mirror the selection. direction: 1 = horizontal, -1 = vertical.",
         objectSchema(Map.of("direction", intProp("1 (horizontal) or -1 (vertical)")), List.of("direction")), args -> {
-          engine.mirrorSelection(reqInt(args, "direction"));
+          engine().mirrorSelection(reqInt(args, "direction"));
           return "Mirrored selection.";
         });
   }
