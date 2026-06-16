@@ -35,6 +35,7 @@ JVM=(-Djava.awt.headless=true
 CONVO=$(cat <<JSON
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":1.5,"method":"tools/call","params":{"name":"diylc_start_session","arguments":{}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"diylc_add_component","arguments":{"type":"Resistor","points":[[60,60],[140,60]]}}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"diylc_add_component","arguments":{"type":"Film Capacitor (Radial)","points":[[140,60],[140,160]]}}}
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"diylc_select_matching","arguments":{"criteria":"R1"}}}

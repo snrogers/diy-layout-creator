@@ -97,6 +97,23 @@ public class MainFrame extends JFrame implements ISwingUI {
 
   private static final long serialVersionUID = 1L;
 
+  /**
+   * Optional host hook. When set (e.g. by the diylc-mcp server), {@link #requestExit()} runs this
+   * instead of calling {@code System.exit}, so a host can close the window without killing the JVM.
+   * When null (the normal desktop app), exit terminates the process.
+   */
+  public static volatile Runnable exitHandler = null;
+
+  /** Terminate the app, or hand off to {@link #exitHandler} when a host has installed one. */
+  public static void requestExit() {
+    Runnable handler = exitHandler;
+    if (handler != null) {
+      handler.run();
+    } else {
+      System.exit(0);
+    }
+  }
+
   private JPanel centerPanel;
   private JPanel leftPanel;
   private JPanel rightPanel;
@@ -165,7 +182,7 @@ public class MainFrame extends JFrame implements ISwingUI {
           dispose();
           presenter.dispose();
           LOG.info("Closing the app");
-          System.exit(0);
+          requestExit();
         }
       }
 
@@ -180,7 +197,7 @@ public class MainFrame extends JFrame implements ISwingUI {
           dispose();
           presenter.dispose();
           LOG.info("Closing the app");
-          System.exit(0);
+          requestExit();
         }
       }
      
