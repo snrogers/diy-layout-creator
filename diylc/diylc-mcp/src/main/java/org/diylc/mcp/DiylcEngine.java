@@ -256,12 +256,12 @@ public class DiylcEngine {
     int clicks = singleClick ? 1 : points.length;
     for (int i = 0; i < clicks; i++) {
       Point p = toCanvas(points[i][0], points[i][1]);
-      // DIYLC fixes a point-by-point component's next control point on mouse MOVE, then commits it
-      // on the following click. We must emulate the move before each click after the first, or every
-      // control point collapses onto the first one.
-      if (i > 0) {
-        presenter.mouseMoved(p, false, false, false);
-      }
+      // DIYLC places a control point at the current cursor position on click. The cursor is set by
+      // mouseMoved, so emit a move before EVERY click — including the first. Without the leading move
+      // a SINGLE_CLICK component (one click) lands at the stale last cursor (origin on a fresh
+      // project); for POINT_BY_POINT the leading move is harmless, since click 0 commits point 0 at
+      // the click location anyway.
+      presenter.mouseMoved(p, false, false, false);
       presenter.mouseClicked(p, 1 /* left */, false, false, false, 1);
     }
   }
