@@ -55,6 +55,28 @@ public class DiylcEngineTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  public void placesSingleClickComponentAtRequestedCoordinate() {
+    // SINGLE_CLICK components (Dot, Pin Header, pads, ICs, …) must place at the requested first
+    // coordinate, not collapse onto the canvas origin. DIYLC snaps SINGLE_CLICK placement to the
+    // grid (default 0.1in ≈ 9.6px), so assert within one grid spacing — the regression symptom is
+    // landing at (0,0), i.e. nowhere near (150,150).
+    engine.addComponent("Dot", new int[][] {{150, 150}});
+
+    Map<String, Object> project = engine.describeProject();
+    List<Map<String, Object>> components = (List<Map<String, Object>>) project.get("components");
+    Map<String, Object> dot = components.get(0);
+
+    Map<String, Object> first = (Map<String, Object>) ((List<?>) dot.get("controlPoints")).get(0);
+    double x = (double) first.get("x");
+    double y = (double) first.get("y");
+    // Lands near the requested point (within one grid spacing) — not at the origin.
+    assertEquals(150.0, x, 15.0);
+    assertEquals(150.0, y, 15.0);
+    assertTrue("Dot must not land at origin", x > 10.0 && y > 10.0);
+  }
+
+  @Test
   public void setsTypedMeasureProperty() {
     engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
     engine.selectAll();
