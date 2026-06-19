@@ -100,9 +100,28 @@ public class ToolRegistry {
         args -> engine().getNetlist(optBool(args, "includeSwitches", false)));
 
     reg("diylc_render_png",
-        "Render the current project to a PNG image so the agent can visually inspect the layout.",
-        objectSchema(Map.of("includeGrid", boolProp("Draw the grid (default false)")), List.of()),
-        args -> ToolResult.of(McpContent.image(engine().renderPngBase64(optBool(args, "includeGrid", false)), "image/png")));
+        "Render the current project to a PNG image so the agent can visually inspect the layout. By "
+            + "default frames the whole canvas page; pass fit=\"content\" to crop to the components' "
+            + "bounding box (useful when the layout is small relative to the page), and width/height or "
+            + "zoom to size the output. Render params never change the session's live view.",
+        objectSchema(Map.of(
+            "includeGrid", boolProp("Draw the grid (default false)"),
+            "fit", Map.of("type", "string", "enum", List.of("canvas", "content"),
+                "description", "canvas = whole project page (default); content = crop to components"),
+            "zoom", Map.of("type", "number", "description", "Render-only zoom (px per project-px)"),
+            "width", intProp("Target output width in px (sizes the render; does not mutate view)"),
+            "height", intProp("Target output height in px (sizes the render; does not mutate view)"),
+            "margin", intProp("Padding in px around a content crop (default 10)")), List.of()),
+        args -> {
+          DiylcEngine.RenderOpts opts = new DiylcEngine.RenderOpts(
+              "content".equalsIgnoreCase(optString(args, "fit", "canvas")),
+              optDouble(args, "zoom", null),
+              optInt(args, "width", null),
+              optInt(args, "height", null),
+              optInt(args, "margin", DiylcEngine.RenderOpts.DEFAULT_MARGIN),
+              optBool(args, "includeGrid", false));
+          return ToolResult.of(McpContent.image(engine().renderPngBase64(opts), "image/png"));
+        });
 
     reg("diylc_get_selection", "Return the currently selected components (same shape as describe).",
         noArgs(), args -> engine().selectionSummary());
@@ -243,6 +262,16 @@ public class ToolRegistry {
       throw new IllegalArgumentException("Missing required argument: " + key);
     }
     return n.asInt();
+  }
+
+  private static Integer optInt(JsonNode args, String key, Integer fallback) {
+    JsonNode n = args == null ? null : args.get(key);
+    return (n == null || n.isNull()) ? fallback : Integer.valueOf(n.asInt());
+  }
+
+  private static Double optDouble(JsonNode args, String key, Double fallback) {
+    JsonNode n = args == null ? null : args.get(key);
+    return (n == null || n.isNull()) ? fallback : Double.valueOf(n.asDouble());
   }
 
   private static boolean optBool(JsonNode args, String key, boolean fallback) {

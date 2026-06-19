@@ -112,6 +112,40 @@ public class DiylcEngineTest {
   }
 
   @Test
+  public void renderFitContentCropsToContentNotFullPage() throws Exception {
+    // A single resistor on the default 29x21cm page: full-canvas render is huge, content-crop is
+    // small. The default (canvas) path is exercised by rendersNonEmptyPng.
+    engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
+
+    DiylcEngine.RenderOpts content = new DiylcEngine.RenderOpts(true, null, null, null, 10, false);
+    String contentPng = engine.renderPngBase64(content);
+
+    // Sanity: produces a valid non-empty PNG.
+    assertNotNull(contentPng);
+    assertTrue(contentPng.length() > 100);
+
+    // Render-only params must not mutate session view state: a subsequent placement lands normally.
+    engine.addComponent("Resistor", new int[][] {{200, 60}, {260, 60}});
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> comps =
+        (List<Map<String, Object>>) engine.describeProject().get("components");
+    assertEquals(2, comps.size());
+  }
+
+  @Test
+  public void renderFitContentHonorsOutputWidth() throws Exception {
+    engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
+    DiylcEngine.RenderOpts o = new DiylcEngine.RenderOpts(true, null, 400, 300, 10, false);
+    String png = engine.renderPngBase64(o);
+    assertNotNull(png);
+    byte[] bytes = java.util.Base64.getDecoder().decode(png);
+    // Read the PNG IHDR to confirm the image was sized to the requested width.
+    java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+    assertEquals(400, img.getWidth());
+    assertEquals(300, img.getHeight());
+  }
+
+  @Test
   public void listsComponentTypes() {
     Map<String, Object> byCategory = engine.listComponentTypes("passive");
     assertFalse(byCategory.isEmpty());

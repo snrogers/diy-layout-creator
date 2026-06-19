@@ -15,6 +15,8 @@ package org.diylc.mcp;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Point;
+import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Method;
@@ -191,23 +193,141 @@ public class DiylcEngine {
 
   /** Render the current project to a PNG and return it base64-encoded. */
   public String renderPngBase64(boolean includeGrid) throws Exception {
-    Dimension dim = presenter.getCanvasDimensions(true, false);
-    int w = Math.max(1, dim.width);
-    int h = Math.max(1, dim.height);
-    BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+    return renderPngBase64(new RenderOpts(false, null, null, null, RenderOpts.DEFAULT_MARGIN, includeGrid));
+  }
+
+  /**
+   * Render options for {@link #renderPngBase64(RenderOpts)}. All framing knobs are backward
+   * compatible; the no-arg path ({@code fitContent=false}, no zoom/width/height) reproduces the
+   * original full-canvas render exactly.
+   */
+  public static final class RenderOpts {
+    static final int DEFAULT_MARGIN = 10;
+    /** Frame the content bbox instead of the whole canvas page. */
+    public final boolean fitContent;
+    /** Render-only zoom (px per project-space px); null = derive from width/height or default. */
+    public final Double zoom;
+    /** Target output width (px); null = unconstrained. */
+    public final Integer width;
+    /** Target output height (px); null = unconstrained. */
+    public final Integer height;
+    /** Padding (px) around a content crop. */
+    public final int margin;
+    public final boolean includeGrid;
+
+    public RenderOpts(boolean fitContent, Double zoom, Integer width, Integer height, int margin, boolean includeGrid) {
+      this.fitContent = fitContent;
+      this.zoom = zoom;
+      this.width = width;
+      this.height = height;
+      this.margin = margin;
+      this.includeGrid = includeGrid;
+    }
+
+    /** True when none of the new framing knobs are set (original full-canvas render). */
+    boolean isDefault() {
+      return !fitContent && zoom == null && width == null && height == null;
+    }
+  }
+
+  /**
+   * Render the current project to a PNG. By default (no framing knobs) this reproduces the original
+   * full-canvas render bit-for-bit. With {@code fitContent} it crops to the bounding box of all
+   * components (control points, project space) plus {@code margin}; {@code zoom} / {@code width} /
+   * {@code height} size the output. Render parameters never mutate the session's live view state.
+   */
+  public String renderPngBase64(RenderOpts o) throws Exception {
+    EnumSet<DrawOption> options = EnumSet.of(DrawOption.ANTIALIASING, DrawOption.CONTROL_POINTS);
+    if (o.includeGrid) {
+      options.add(DrawOption.GRID);
+    }
+
+    // Default path: full canvas at the presenter's own zoom — original behaviour, unchanged.
+    if (o.isDefault()) {
+      Dimension dim = presenter.getCanvasDimensions(true, false);
+      return renderAtCanvasSize(dim.width, dim.height, options, 0, 0, 0);
+    }
+
+    // Framed path. Resolve the project-space region to frame and an output zoom (px/project-px).
+    Rectangle2D region = o.fitContent ? contentBoundsProject() : canvasBoundsProject();
+    double oz = outputZoom(region, o);
+
+    int imgW = Math.max(1, (int) Math.round(region.getWidth() * oz + 2 * o.margin));
+    int imgH = Math.max(1, (int) Math.round(region.getHeight() * oz + 2 * o.margin));
+    if (o.width != null) {
+      imgW = o.width;
+    }
+    if (o.height != null) {
+      imgH = o.height;
+    }
+    // Translate so the region's origin maps to (margin, margin): a component at project coord p
+    // renders at margin + (p - region.x) * oz. draw() applies effZoom = oz internally via
+    // externalZoom = oz * PIXEL_SIZE (its base zoom is 1/PIXEL_SIZE), so pre-translate g2d by
+    // (margin - region.x * oz, margin - region.y * oz).
+    double tx = o.margin - region.getX() * oz;
+    double ty = o.margin - region.getY() * oz;
+    return renderAtCanvasSize(imgW, imgH, options, oz, tx, ty);
+  }
+
+  /** Render an imgW×imgH image; if {@code effZoom > 0}, translate g2d by (tx,ty) and pass externalZoom. */
+  private String renderAtCanvasSize(int imgW, int imgH, EnumSet<DrawOption> options, double effZoom,
+      double tx, double ty) throws Exception {
+    BufferedImage image = new BufferedImage(imgW, imgH, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g2d = image.createGraphics();
     try {
-      EnumSet<DrawOption> options = EnumSet.of(DrawOption.ANTIALIASING, DrawOption.CONTROL_POINTS);
-      if (includeGrid) {
-        options.add(DrawOption.GRID);
+      if (effZoom > 0) {
+        g2d.translate(tx, ty);
       }
-      presenter.draw(g2d, options, null, null, null, null);
+      Double externalZoom = effZoom > 0 ? effZoom * org.diylc.utils.Constants.PIXEL_SIZE : null;
+      presenter.draw(g2d, options, null, externalZoom, null, null);
     } finally {
       g2d.dispose();
     }
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     ImageIO.write(image, "png", baos);
     return Base64.getEncoder().encodeToString(baos.toByteArray());
+  }
+
+  /** Output zoom (image px per project-space px) given the region and the requested knobs. */
+  private static double outputZoom(Rectangle2D region, RenderOpts o) {
+    if (o.zoom != null) {
+      return o.zoom;
+    }
+    if (o.width != null || o.height != null) {
+      double zx = o.width != null ? (o.width - 2 * o.margin) / Math.max(1, region.getWidth()) : Double.POSITIVE_INFINITY;
+      double zy = o.height != null ? (o.height - 2 * o.margin) / Math.max(1, region.getHeight()) : Double.POSITIVE_INFINITY;
+      double z = Math.min(zx, zy);
+      return z > 0 && Double.isFinite(z) ? z : 1.0;
+    }
+    return 1.0;
+  }
+
+  /** Bounding box (project space) of every component's control points; null if the project is empty. */
+  private java.awt.geom.Rectangle2D contentBoundsProject() {
+    double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY;
+    double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+    for (IDIYComponent<?> c : presenter.getCurrentProject().getComponents()) {
+      for (int i = 0; i < c.getControlPointCount(); i++) {
+        Point2D p = c.getControlPoint(i);
+        minX = Math.min(minX, p.getX());
+        minY = Math.min(minY, p.getY());
+        maxX = Math.max(maxX, p.getX());
+        maxY = Math.max(maxY, p.getY());
+      }
+    }
+    if (!Double.isFinite(minX)) {
+      // Empty project: fall back to the canvas page.
+      return canvasBoundsProject();
+    }
+    return new java.awt.geom.Rectangle2D.Double(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY));
+  }
+
+  /** The project's page size in project-space pixels. */
+  private java.awt.geom.Rectangle2D canvasBoundsProject() {
+    org.diylc.core.Project p = presenter.getCurrentProject();
+    double w = p.getWidth().convertToPixels();
+    double h = p.getHeight().convertToPixels();
+    return new java.awt.geom.Rectangle2D.Double(0, 0, w, h);
   }
 
   // --- Selection helpers -------------------------------------------------------------------------

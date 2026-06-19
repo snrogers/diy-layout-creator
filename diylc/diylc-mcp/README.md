@@ -108,7 +108,7 @@ one is open.
 | `diylc_describe_project` | Structured dump: metadata + components (type, name, value, control points with node names) |
 | `diylc_list_component_types` | Available component types by category (optionally filtered) |
 | `diylc_get_netlist` | Textual netlist(s); `includeSwitches` expands switch positions |
-| `diylc_render_png` | Render the layout to a PNG image block for visual inspection |
+| `diylc_render_png` | Render to PNG; `fit` (canvas/content), `zoom`, `width`/`height`, `margin` frame the output |
 | `diylc_add_component` | Place a component — one point for single-click types, two+ for point-by-point (resistors, wires) |
 | `diylc_set_property` | Set a property by editor name (`Value`, `Color`, …) on the selection; parses typed values (measures, enums) |
 | `diylc_delete_selection` | Delete selected components |
