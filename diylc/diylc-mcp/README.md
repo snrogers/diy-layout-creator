@@ -67,6 +67,7 @@ drive:
   hook on `MainFrame`), not the server — the agent can `start_session` again.
 
 Caveats (by design):
+
 - Agent edit tools operate on the shared selection — `select_all`/`set_property` **clobbers the
   human's current selection or armed component**.
 - It is the real app: AutoSave writes `~/diylc/backup`, and cloud/chatbot menus are present.
@@ -108,7 +109,7 @@ one is open.
 | `diylc_describe_project` | Structured dump: metadata + components (type, name, value, control points with node names) |
 | `diylc_list_component_types` | Available component types by category (optionally filtered) |
 | `diylc_get_netlist` | Textual netlist(s); `includeSwitches` expands switch positions |
-| `diylc_render_png` | Render to PNG; `fit` (canvas/content), `zoom`, `width`/`height`, `margin` frame the output |
+| `diylc_render_png` | Render to a PNG **written to a local file** (path returned as text; no CDN upload); `fit` (canvas/content), `zoom`, `width`/`height`, `margin` frame the output; `path` names the file; `returnImage` opts back into MCP image content |
 | `diylc_add_component` | Place a component — one point for single-click types, two+ for point-by-point (resistors, wires) |
 | `diylc_set_property` | Set a property by editor name (`Value`, `Color`, …) on the selection; parses typed values (measures, enums) |
 | `diylc_delete_selection` | Delete selected components |
@@ -123,6 +124,23 @@ Coordinates are project pixels. Placement converts them to canvas pixels per cal
 `Presenter.scalePoint`), so the `[x,y]` you pass to `diylc_add_component` lands at that project point
 regardless of view state — e.g. `[[60,60],[140,60]]` → a horizontal resistor 80px wide. Default grid
 is `0.1in`; placement snaps to it.
+
+### Data residency (render output)
+
+By default `diylc_render_png` writes the PNG to a **local file** and returns its absolute path as a
+text block — no image content in the tool result. This is deliberate: returning MCP image content
+makes the host client treat the bytes as something the model must "see," and several hosts (Claude
+Code included) then **upload every render to a remote CDN** and return a URL. A layout render is
+often sensitive IP (proprietary circuit, unreleased hardware), so the default keeps it on-machine.
+
+- **Where renders live.** Precedence: the `path` arg (an absolute or relative `.png` path; parent
+  dirs are created), else `${DIYLC_MCP_RENDER_DIR}`, else `${XDG_RUNTIME_DIR}/diylc-render`, else
+  `${java.io.tmpdir}/diylc-render`. Auto-named files are `render-<n>.png`, incremented per session.
+- **Viewing.** Open the returned path with your host's file-read tool. The file is the source of
+  truth; nothing is uploaded.
+- **Opt-in image content.** Pass `returnImage: true` to additionally get the PNG back as MCP image
+  content (the legacy behaviour). Use this only when you accept the host may upload it off-host.
+- Netlist / describe / other text tools never carry image content and are unaffected.
 
 ## Architecture
 

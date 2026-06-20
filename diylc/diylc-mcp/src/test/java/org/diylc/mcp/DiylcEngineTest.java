@@ -12,11 +12,14 @@
  */
 package org.diylc.mcp;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.Before;
@@ -179,5 +182,62 @@ public class DiylcEngineTest {
   public void listsComponentTypes() {
     Map<String, Object> byCategory = engine.listComponentTypes("passive");
     assertFalse(byCategory.isEmpty());
+  }
+
+  @Test
+  public void renderPngToFileWritesValidPngAndRoundTrips() throws Exception {
+    // The data-residency fix: renderPngToFile writes a real PNG to disk (the on-machine source of
+    // truth the tool returns as a path) and returns the same bytes base64-encoded so an opt-in
+    // image-content caller gets them without a second render. Decode the file and the returned
+    // base64 independently and confirm they agree and honor width/height.
+    engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
+    Path out = Files.createTempDirectory("diylc-render-test").resolve("render.png");
+
+    DiylcEngine.RenderOpts o = new DiylcEngine.RenderOpts(true, null, 400, 300, 10, false);
+    String base64 = engine.renderPngToFile(o, out);
+
+    // The file exists on disk and is a PNG of the requested dimensions.
+    assertTrue("render file should exist", Files.exists(out) && Files.size(out) > 100);
+    java.awt.image.BufferedImage fromFile =
+        javax.imageio.ImageIO.read(out.toFile());
+    assertEquals(400, fromFile.getWidth());
+    assertEquals(300, fromFile.getHeight());
+
+    // The returned base64 decodes to the SAME image the file holds (single render, two views).
+    byte[] fromBase64 = java.util.Base64.getDecoder().decode(base64);
+    java.awt.image.BufferedImage img =
+        javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(fromBase64));
+    assertEquals(400, img.getWidth());
+    assertEquals(300, img.getHeight());
+    assertArrayEquals(Files.readAllBytes(out), fromBase64);
+  }
+
+  @Test
+  public void defaultRenderDirResolvesOverrideThenXdgThenTmpdir() {
+    // Env precedence is unit-tested through the explicit-override overload, since a running JVM
+    // cannot re-set its own launch-time env. Override wins; empty/blank falls through.
+    assertEquals(Path.of("/custom/dir"), engine.defaultRenderDir("/custom/dir"));
+    assertEquals(Path.of("/also-custom"), engine.defaultRenderDir("/also-custom"));
+
+    // No override: resolves to <base>/diylc-render where base is XDG_RUNTIME_DIR or java.io.tmpdir.
+    Path fallback = engine.defaultRenderDir(null);
+    String xdg = System.getenv("XDG_RUNTIME_DIR");
+    Path expected = (xdg != null && !xdg.isEmpty())
+        ? Path.of(xdg).resolve("diylc-render")
+        : Path.of(System.getProperty("java.io.tmpdir")).resolve("diylc-render");
+    assertEquals(expected, fallback);
+
+    // Empty/blank overrides are treated the same as null.
+    assertEquals(fallback, engine.defaultRenderDir(""));
+  }
+
+  @Test
+  public void nextRenderPathIncrementsUnderDefaultDir() {
+    // Auto-named renders live under defaultRenderDir() and monotonically increment per engine.
+    Path first = engine.nextRenderPath();
+    Path second = engine.nextRenderPath();
+    assertEquals(engine.defaultRenderDir(), first.getParent());
+    assertEquals("render-1.png", first.getFileName().toString());
+    assertEquals("render-2.png", second.getFileName().toString());
   }
 }

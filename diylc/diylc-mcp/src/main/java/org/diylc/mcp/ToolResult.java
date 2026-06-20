@@ -25,4 +25,8 @@ public record ToolResult(List<Map<String, Object>> content) {
   public static ToolResult of(Map<String, Object> block) {
     return new ToolResult(List.of(block));
   }
+
+  public static ToolResult of(Map<String, Object> first, Map<String, Object> second) {
+    return new ToolResult(List.of(first, second));
+  }
 }
