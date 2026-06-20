@@ -374,6 +374,11 @@ public class DiylcEngine {
     }
     presenter.setNewComponentTypeSlot(type, null, null, false);
     int clicks = singleClick ? 1 : points.length;
+    // Snapshot component identities before placement so we can target only the just-added ones.
+    // DIYLC inserts new components by z-order (not appended), so a positional subList is unreliable.
+    java.util.Set<IDIYComponent<?>> before = java.util.Collections
+        .newSetFromMap(new java.util.IdentityHashMap<>());
+    before.addAll(presenter.getCurrentProject().getComponents());
     for (int i = 0; i < clicks; i++) {
       Point p = toCanvas(points[i][0], points[i][1]);
       // DIYLC places a control point at the current cursor position on click. The cursor is set by
@@ -383,6 +388,54 @@ public class DiylcEngine {
       // the click location anyway.
       presenter.mouseMoved(p, false, false, false);
       presenter.mouseClicked(p, 1 /* left */, false, false, false, 1);
+    }
+    if (points.length >= 2) {
+      // The click flow maps 1:1 onto control points only when the component's control-point count
+      // equals the click count (Resistor, Copper Trace). Multi-handle components (e.g. Hookup Wire —
+      // a SINGLE_CLICK cubic with 4 control points) are instantiated with their full default template
+      // on the first click; the remaining points are never repositioned, so the far endpoint (an
+      // electrical terminal) lands on a fixed offset and the netlist reads an open circuit. Per the
+      // tool contract, >=2 requested points means endpoint-to-endpoint placement, so override the
+      // just-placed components' control points directly to honour every requested coordinate.
+      List<IDIYComponent<?>> placed = new ArrayList<>();
+      for (IDIYComponent<?> c : presenter.getCurrentProject().getComponents()) {
+        if (!before.contains(c)) {
+          placed.add(c);
+        }
+      }
+      applyRequestedControlPoints(placed, points);
+      presenter.refresh();
+    }
+  }
+
+  /**
+   * Force each just-placed component's control points to the requested coordinates: endpoint
+   * {@code cp[0]} = first input, {@code cp[last]} = last input; if the component has as many control
+   * points as inputs, map them 1:1, otherwise interpolate the intermediate (handle) points linearly
+   * between the endpoints (a straight, sensible shape). Endpoints must be correct for netlist
+   * connectivity; handle shape is cosmetic.
+   */
+  private static void applyRequestedControlPoints(List<IDIYComponent<?>> placed, int[][] points) {
+    Point2D start = new Point2D.Double(points[0][0], points[0][1]);
+    Point2D end = new Point2D.Double(points[points.length - 1][0], points[points.length - 1][1]);
+    for (IDIYComponent<?> c : placed) {
+      int n = c.getControlPointCount();
+      if (n <= 1) {
+        continue;
+      }
+      c.setControlPoint(start, 0);
+      c.setControlPoint(end, n - 1);
+      for (int i = 1; i < n - 1; i++) {
+        Point2D p;
+        if (points.length > i) {
+          p = new Point2D.Double(points[i][0], points[i][1]);
+        } else {
+          double t = (double) i / (n - 1);
+          p = new Point2D.Double(start.getX() + t * (end.getX() - start.getX()),
+              start.getY() + t * (end.getY() - start.getY()));
+        }
+        c.setControlPoint(p, i);
+      }
     }
   }
 
