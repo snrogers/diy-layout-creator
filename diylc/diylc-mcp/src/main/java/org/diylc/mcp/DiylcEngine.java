@@ -21,6 +21,8 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
@@ -196,6 +198,11 @@ public class DiylcEngine {
     return renderPngBase64(new RenderOpts(false, null, null, null, RenderOpts.DEFAULT_MARGIN, includeGrid));
   }
 
+  /** Render the current project to a PNG and return it base64-encoded. */
+  public String renderPngBase64(RenderOpts o) throws Exception {
+    return Base64.getEncoder().encodeToString(renderPngBytes(o));
+  }
+
   /**
    * Render options for {@link #renderPngBase64(RenderOpts)}. All framing knobs are backward
    * compatible; the no-arg path ({@code fitContent=false}, no zoom/width/height) reproduces the
@@ -232,11 +239,13 @@ public class DiylcEngine {
 
   /**
    * Render the current project to a PNG. By default (no framing knobs) this reproduces the original
-   * full-canvas render bit-for-bit. With {@code fitContent} it crops to the bounding box of all
+   * full-canvas render bit-for-byte. With {@code fitContent} it crops to the bounding box of all
    * components (control points, project space) plus {@code margin}; {@code zoom} / {@code width} /
    * {@code height} size the output. Render parameters never mutate the session's live view state.
+   * Returns the raw PNG bytes; {@link #renderPngBase64(RenderOpts)} base64-encodes them and
+   * {@link #renderPngToFile(RenderOpts, Path)} writes them to disk.
    */
-  public String renderPngBase64(RenderOpts o) throws Exception {
+  public byte[] renderPngBytes(RenderOpts o) throws Exception {
     EnumSet<DrawOption> options = EnumSet.of(DrawOption.ANTIALIASING, DrawOption.CONTROL_POINTS);
     if (o.includeGrid) {
       options.add(DrawOption.GRID);
@@ -270,7 +279,7 @@ public class DiylcEngine {
   }
 
   /** Render an imgW×imgH image; if {@code effZoom > 0}, translate g2d by (tx,ty) and pass externalZoom. */
-  private String renderAtCanvasSize(int imgW, int imgH, EnumSet<DrawOption> options, double effZoom,
+  private byte[] renderAtCanvasSize(int imgW, int imgH, EnumSet<DrawOption> options, double effZoom,
       double tx, double ty) throws Exception {
     BufferedImage image = new BufferedImage(imgW, imgH, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g2d = image.createGraphics();
@@ -285,8 +294,55 @@ public class DiylcEngine {
     }
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     ImageIO.write(image, "png", baos);
-    return Base64.getEncoder().encodeToString(baos.toByteArray());
+    return baos.toByteArray();
   }
+
+  /**
+   * Render once and write the PNG to {@code output} (creating parent directories as needed),
+   * returning the same bytes base64-encoded so a caller that also wants MCP image content gets it
+   * without a second render. Used by the {@code diylc_render_png} tool to keep renders on-machine:
+   * the file is the source of truth (returned to the agent as a path), and the base64 is only surfaced
+   * when the caller explicitly opts into image content.
+   */
+  public String renderPngToFile(RenderOpts o, Path output) throws Exception {
+    byte[] bytes = renderPngBytes(o);
+    Path parent = output.getParent();
+    if (parent != null) {
+      Files.createDirectories(parent);
+    }
+    Files.write(output, bytes);
+    return Base64.getEncoder().encodeToString(bytes);
+  }
+
+  /**
+   * Where renders live when the caller does not name a file. Precedence: {@code DIYLC_MCP_RENDER_DIR}
+   * (used verbatim), then {@code $XDG_RUNTIME_DIR/diylc-render}, then {@code ${java.io.tmpdir}/diylc-render}.
+   * Exposed with an explicit override so the precedence is unit-testable without setting env vars at
+   * JVM-launch time (which a running test cannot do).
+   */
+  public Path defaultRenderDir() {
+    return defaultRenderDir(System.getenv("DIYLC_MCP_RENDER_DIR"));
+  }
+
+  Path defaultRenderDir(String override) {
+    if (override != null && !override.isEmpty()) {
+      return Path.of(override);
+    }
+    String xdg = System.getenv("XDG_RUNTIME_DIR");
+    String base = (xdg != null && !xdg.isEmpty()) ? xdg : System.getProperty("java.io.tmpdir");
+    return Path.of(base).resolve("diylc-render");
+  }
+
+  /**
+   * Next auto-named render path: {@code <defaultRenderDir>/render-<n>.png}, where {@code n} increments
+   * per engine (one session at a time per {@link SessionManager}, so this is race-free). Renders are
+   * disposable previews; an existing file of the same name is overwritten.
+   */
+  public Path nextRenderPath() {
+    return defaultRenderDir().resolve("render-" + (renderSeq++) + ".png");
+  }
+
+  private long renderSeq = 1;
 
   /** Output zoom (image px per project-space px) given the region and the requested knobs. */
   private static double outputZoom(Rectangle2D region, RenderOpts o) {

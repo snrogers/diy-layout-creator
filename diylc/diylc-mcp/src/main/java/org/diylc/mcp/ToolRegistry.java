@@ -100,10 +100,17 @@ public class ToolRegistry {
         args -> engine().getNetlist(optBool(args, "includeSwitches", false)));
 
     reg("diylc_render_png",
-        "Render the current project to a PNG image so the agent can visually inspect the layout. By "
-            + "default frames the whole canvas page; pass fit=\"content\" to crop to the components' "
-            + "bounding box (useful when the layout is small relative to the page), and width/height or "
-            + "zoom to size the output. Render params never change the session's live view.",
+        "Render the current project to a PNG the agent can visually inspect. By default frames the "
+            + "whole canvas page; pass fit=\"content\" to crop to the components' bounding box (useful "
+            + "when the layout is small relative to the page), and width/height or zoom to size the output. "
+            + "Render params never change the session's live view.\n\n"
+            + "Data residency: by default the PNG is written to a LOCAL file and the tool returns its "
+            + "absolute path as text (no image content), so nothing leaves the host. Open the path with "
+            + "your Read tool to view it. The on-disk render dir defaults to "
+            + "${DIYLC_MCP_RENDER_DIR:-${XDG_RUNTIME_DIR:-tmpdir}/diylc-render}; override it with the "
+            + "\"path\" arg (an absolute or relative .png path; parent dirs are created). Pass "
+            + "returnImage=true ONLY when you want the bytes back as MCP image content (some hosts then "
+            + "upload that image to a remote CDN — never use it for sensitive/proprietary layouts).",
         objectSchema(Map.of(
             "includeGrid", boolProp("Draw the grid (default false)"),
             "fit", Map.of("type", "string", "enum", List.of("canvas", "content"),
@@ -111,7 +118,10 @@ public class ToolRegistry {
             "zoom", Map.of("type", "number", "description", "Render-only zoom (px per project-px)"),
             "width", intProp("Target output width in px (sizes the render; does not mutate view)"),
             "height", intProp("Target output height in px (sizes the render; does not mutate view)"),
-            "margin", intProp("Padding in px around a content crop (default 10)")), List.of()),
+            "margin", intProp("Padding in px around a content crop (default 10)"),
+            "path", stringProp("Local .png path to write (default: auto-named under the render dir)"),
+            "returnImage", boolProp("Also return the PNG as MCP image content (may trigger a host CDN upload; default false)")),
+            List.of()),
         args -> {
           DiylcEngine.RenderOpts opts = new DiylcEngine.RenderOpts(
               "content".equalsIgnoreCase(optString(args, "fit", "canvas")),
@@ -120,7 +130,20 @@ public class ToolRegistry {
               optInt(args, "height", null),
               optInt(args, "margin", DiylcEngine.RenderOpts.DEFAULT_MARGIN),
               optBool(args, "includeGrid", false));
-          return ToolResult.of(McpContent.image(engine().renderPngBase64(opts), "image/png"));
+          DiylcEngine engine = engine();
+          String pathArg = optString(args, "path", null);
+          java.nio.file.Path output = (pathArg != null && !pathArg.isEmpty())
+              ? java.nio.file.Paths.get(pathArg)
+              : engine.nextRenderPath();
+          String base64 = engine.renderPngToFile(opts, output);
+          boolean returnImage = optBool(args, "returnImage", false);
+          String summary = "Rendered to " + output.toAbsolutePath();
+          if (returnImage) {
+            // Legacy opt-in: image content so the host renders inline. WARNING: many hosts upload
+            // this to a remote CDN, leaking the render off-host — hence the off-by-default policy.
+            return ToolResult.of(McpContent.text(summary), McpContent.image(base64, "image/png"));
+          }
+          return summary;
         });
 
     reg("diylc_get_selection", "Return the currently selected components (same shape as describe).",
