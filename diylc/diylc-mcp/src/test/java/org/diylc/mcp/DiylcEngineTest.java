@@ -92,6 +92,36 @@ public class DiylcEngineTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  public void placesHookupWireEndpointsAtRequestedCoordinates() {
+    // Hookup Wire is a cubic (4 control points: 2 endpoints + 2 handles). Only the endpoints are
+    // electrical, so they MUST equal the requested first/last input — otherwise the netlist reads an
+    // open circuit for a wire that renders as connected.
+    engine.addComponent("Hookup Wire", new int[][] {{0, 0}, {50, 50}});
+
+    List<Map<String, Object>> components =
+        (List<Map<String, Object>>) engine.describeProject().get("components");
+    List<Map<String, Object>> cps = (List<Map<String, Object>>) components.get(0).get("controlPoints");
+    assertEquals(4, cps.size());
+    assertEquals(0.0, (double) cps.get(0).get("x"), 0.001);
+    assertEquals(0.0, (double) cps.get(0).get("y"), 0.001);
+    assertEquals(50.0, (double) cps.get(3).get("x"), 0.001);
+    assertEquals(50.0, (double) cps.get(3).get("y"), 0.001);
+  }
+
+  @Test
+  public void wireJoinsTwoComponentsInNetlist() throws Exception {
+    // Two resistors sharing nodes via a hookup wire: R1 right lead -> wire -> R2 left lead.
+    engine.addComponent("Resistor", new int[][] {{0, 0}, {50, 0}});
+    engine.addComponent("Hookup Wire", new int[][] {{50, 0}, {100, 0}});
+    engine.addComponent("Resistor", new int[][] {{100, 0}, {150, 0}});
+
+    List<String> netlists = engine.getNetlist(false);
+    String netlist = String.join("\n", netlists);
+    assertTrue("wire should join R1 and R2 into one net", netlist.contains("R1") && netlist.contains("R2"));
+  }
+
+  @Test
   public void computesNetlistForConnectedComponents() throws Exception {
     // Two resistors sharing the node at (140,60) form one net.
     engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
