@@ -300,13 +300,10 @@ public class Presenter implements IPlugInPort {
 
   @Override
   public void loadProjectFromFile(String fileName) {
-    LOG.info(String.format("loadProjectFromFile(%s)", fileName));
     List<String> warnings = null;
     try {
       warnings = new ArrayList<String>();
-      Project project = (Project) projectFileManager.deserializeProjectFromFile(fileName, warnings);
-      loadProject(project, true, fileName);
-      projectFileManager.fireFileStatusChanged();
+      loadProjectFromFile(fileName, warnings);
       if (!warnings.isEmpty()) {
         StringBuilder builder = new StringBuilder("<html>File was opened, but there were some issues with it:<br><br>");
         for (String warning : warnings) {
@@ -316,7 +313,6 @@ public class Presenter implements IPlugInPort {
         builder.append("</html");
         view.showMessage(builder.toString(), WARNING, IView.WARNING_MESSAGE);
       }
-      addToRecentFiles(fileName);
     } catch (Exception ex) {
       LOG.error("Could not load file", ex);
       String errorMessage = "Could not open file " + fileName + ". Check the log for details.";
@@ -329,6 +325,19 @@ public class Presenter implements IPlugInPort {
       }
       view.showMessage(errorMessage, ERROR, IView.ERROR_MESSAGE);
     }
+  }
+
+  /**
+   * Loads a project without any view interaction: load warnings are appended to the supplied list
+   * and failures propagate to the caller instead of being shown as dialogs. Used by headless
+   * front-ends (e.g. the MCP server) that report warnings through their own channel.
+   */
+  public void loadProjectFromFile(String fileName, List<String> warnings) throws Exception {
+    LOG.info(String.format("loadProjectFromFile(%s)", fileName));
+    Project project = (Project) projectFileManager.deserializeProjectFromFile(fileName, warnings);
+    loadProject(project, true, fileName);
+    projectFileManager.fireFileStatusChanged();
+    addToRecentFiles(fileName);
   }
 
   @SuppressWarnings("unchecked")
@@ -369,7 +378,7 @@ public class Presenter implements IPlugInPort {
   public void saveProjectToFile(String fileName, boolean isBackup) {
     LOG.info(String.format("saveProjectToFile(%s)", fileName));
     try {
-      currentProject.setFileVersion(CURRENT_VERSION);
+      currentProject.setFileVersion(currentVersionNumber());
       projectFileManager.serializeProjectToFile(currentProject, fileName, isBackup);
       if (!isBackup)
         addToRecentFiles(fileName);
@@ -1024,9 +1033,16 @@ public class Presenter implements IPlugInPort {
 
   @Override
   public VersionNumber getCurrentVersionNumber() {
+    return currentVersionNumber();
+  }
+
+  /**
+   * The running app's version, lazily read from update.xml. Always non-null - use this instead of
+   * reading {@link #CURRENT_VERSION} directly, which stays null until this initializes it.
+   */
+  public static VersionNumber currentVersionNumber() {
     if (CURRENT_VERSION == null) {
-      List<Version> recentUpdates = getRecentUpdates();
-      CURRENT_VERSION = recentUpdates.stream()
+      CURRENT_VERSION = getRecentVersions().stream()
           .findFirst().map(v -> v.getVersionNumber())
           .orElse(new VersionNumber(5, 0, 0));
       LOG.info("Current DIYLC version: " + CURRENT_VERSION);
