@@ -76,10 +76,16 @@ public class ToolRegistry {
       return "New empty project created.";
     });
 
-    reg("diylc_open_project", "Load a .diy project file from disk, replacing the current project.",
+    reg("diylc_open_project",
+        "Load a .diy project file from disk, replacing the current project. Non-fatal load warnings "
+            + "(e.g. missing/newer file version, unknown properties) are included in the result.",
         objectSchema(Map.of("path", stringProp("Absolute path to a .diy file")), List.of("path")), args -> {
-          engine().openProject(reqString(args, "path"));
-          return "Opened " + engine().currentFileName();
+          List<String> warnings = engine().openProject(reqString(args, "path"));
+          String opened = "Opened " + engine().currentFileName();
+          if (warnings.isEmpty())
+            return opened;
+          return opened + " (" + warnings.size() + (warnings.size() == 1 ? " warning" : " warnings") + ":\n- "
+              + String.join("\n- ", warnings) + ")";
         });
 
     reg("diylc_describe_project",

@@ -101,8 +101,15 @@ public class DiylcEngine {
     presenter.createNewProject();
   }
 
-  public void openProject(String path) {
-    presenter.loadProjectFromFile(path);
+  /**
+   * Opens a project, returning any load warnings (e.g. missing/newer file version, unknown
+   * properties) so the caller can put them in the tool result. Bypasses the view-dialog code path:
+   * failures throw and nothing pops at a headed window mid-tool-call.
+   */
+  public List<String> openProject(String path) throws Exception {
+    List<String> warnings = new ArrayList<>();
+    presenter.loadProjectFromFile(path, warnings);
+    return warnings;
   }
 
   public void saveProject(String path) {

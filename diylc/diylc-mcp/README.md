@@ -104,7 +104,7 @@ one is open.
 | `diylc_start_session` | Open a session (`headed` bool); required before any other tool |
 | `diylc_end_session` | Close the session (`force` bool to discard unsaved); server stays up |
 | `diylc_new_project` | Start an empty project |
-| `diylc_open_project` | Load a `.diy` file |
+| `diylc_open_project` | Load a `.diy` file; non-fatal load warnings (missing/newer file version, unknown properties) are included in the result |
 | `diylc_save_project` | Write the project to a `.diy` file |
 | `diylc_describe_project` | Structured dump: metadata + components (type, name, value, control points with node names) |
 | `diylc_list_component_types` | Available component types by category (optionally filtered) |

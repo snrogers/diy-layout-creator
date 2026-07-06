@@ -185,6 +185,51 @@ public class DiylcEngineTest {
   }
 
   @Test
+  public void openProjectReturnsNoWarningsForCleanFile() throws Exception {
+    engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
+    Path file = Files.createTempDirectory("diylc-open-test").resolve("clean.diy");
+    engine.saveProject(file.toString());
+
+    List<String> warnings = engine.openProject(file.toString());
+    assertTrue("clean save/open round-trip should carry no warnings: " + warnings, warnings.isEmpty());
+  }
+
+  @Test
+  public void openProjectSurfacesMissingFileVersionWarning() throws Exception {
+    // The bug: ProjectFileManager load warnings only reached the GUI as a dialog, so the MCP caller
+    // saw plain success. A .diy with its <fileVersion> element stripped (typical of hand-authored
+    // XML) must yield the "may be corrupted" warning in the returned list.
+    engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
+    Path dir = Files.createTempDirectory("diylc-open-test");
+    Path clean = dir.resolve("clean.diy");
+    engine.saveProject(clean.toString());
+
+    String xml = new String(Files.readAllBytes(clean), java.nio.charset.StandardCharsets.ISO_8859_1);
+    String stripped = xml.replaceAll("(?s)<fileVersion>.*?</fileVersion>", "");
+    assertFalse("fixture must actually lose its fileVersion", stripped.equals(xml));
+    Path noVersion = dir.resolve("no-version.diy");
+    Files.write(noVersion, stripped.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+
+    List<String> warnings = engine.openProject(noVersion.toString());
+    assertEquals(1, warnings.size());
+    assertTrue("expected the corrupted-file warning, got: " + warnings,
+        warnings.get(0).contains("may be corrupted"));
+  }
+
+  @Test
+  public void openProjectThrowsOnUnreadableFile() throws Exception {
+    // Failures must propagate to the tool layer as errors, not vanish into a view dialog.
+    Path bogus = Files.createTempDirectory("diylc-open-test").resolve("bogus.diy");
+    Files.write(bogus, "not xml at all".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+    try {
+      engine.openProject(bogus.toString());
+      org.junit.Assert.fail("expected openProject to throw on an unparseable file");
+    } catch (Exception expected) {
+      // pass
+    }
+  }
+
+  @Test
   public void renderPngToFileWritesValidPngAndRoundTrips() throws Exception {
     // The data-residency fix: renderPngToFile writes a real PNG to disk (the on-machine source of
     // truth the tool returns as a path) and returns the same bytes base64-encoded so an opt-in
