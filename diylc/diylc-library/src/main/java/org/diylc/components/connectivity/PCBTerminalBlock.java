@@ -330,11 +330,10 @@ public class PCBTerminalBlock extends AbstractTransparentComponent<PCBTerminalBl
   }
 
 
-  @Override
-  public String getControlPointNodeName(int index) {
-    // we don't want the block to produce any nodes, it just makes connections
-    return null;
-  }
+  // getControlPointNodeName deliberately NOT overridden: positions must be named netlist nodes
+  // (AbstractComponent default: "1".."N", like Pin Header). With null node names the block emitted
+  // no nodes, and NetlistBuilder drops groups with <2 named nodes - so any net dead-ending at a
+  // terminal block (off-board wiring, the component's main use) silently vanished from the netlist.
 
   @Override
   public boolean canPointMoveFreely(int pointIndex) {

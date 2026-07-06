@@ -245,6 +245,30 @@ public class DiylcEngineTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  public void netlistShowsNetDeadEndingAtTerminalBlock() throws Exception {
+    // The terminal-block blind spot: a net whose only other end is a TB position (off-board
+    // wiring, the block's main purpose) must appear in the netlist as {R1.x, TB1.n} — before the
+    // fix the TB emitted no named nodes and the 1-named-node group was silently dropped,
+    // indistinguishable from a missing connection.
+    engine.addComponent("PCB Terminal Block", new int[][] {{100, 100}});
+    List<Map<String, Object>> components =
+        (List<Map<String, Object>>) engine.describeProject().get("components");
+    List<Map<String, Object>> tbPoints =
+        (List<Map<String, Object>>) components.get(0).get("controlPoints");
+    int tbX = (int) Math.round((double) tbPoints.get(0).get("x"));
+    int tbY = (int) Math.round((double) tbPoints.get(0).get("y"));
+
+    engine.addComponent("Resistor", new int[][] {{tbX, tbY}, {tbX + 80, tbY}});
+
+    String netlist = String.join("\n", engine.getNetlist(false));
+    assertTrue("terminal-block position should be a named node in the netlist: " + netlist,
+        netlist.contains("TB1.1"));
+    assertTrue("the resistor lead landing on the block should share the net: " + netlist,
+        netlist.contains("R1"));
+  }
+
+  @Test
   public void headedEngineFocusesViewOnActions() throws Exception {
     // Headed sessions must center the human's view on the agent's action: each mutating op
     // dispatches SCROLL_TO with the affected components' canvas bounds, queued after any handler
