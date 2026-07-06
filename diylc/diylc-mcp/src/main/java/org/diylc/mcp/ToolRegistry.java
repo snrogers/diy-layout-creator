@@ -184,6 +184,25 @@ public class ToolRegistry {
           return "Placed " + type + ".";
         });
 
+    reg("diylc_set_control_points",
+        "Reposition an existing component's control points (geometry), addressed by component name — "
+            + "e.g. repair a wire endpoint that missed its pad without deleting and re-placing. Two "
+            + "points set the electrical endpoints (curve handles are interpolated); supply up to one "
+            + "per control point for full control (see counts in diylc_describe_project). Returns the "
+            + "component's updated description.",
+        objectSchema(Map.of(
+            "name", stringProp("Component name, e.g. 'W3' (see diylc_describe_project)"),
+            "points", Map.of(
+                "type", "array",
+                "description", "New control points as [[x,y], ...] in pixels",
+                "items", Map.of(
+                    "type", "array",
+                    "items", Map.of("type", "integer"),
+                    "minItems", 2,
+                    "maxItems", 2))),
+            List.of("name", "points")),
+        args -> engine().setControlPoints(reqString(args, "name"), reqPoints(args, "points")));
+
     reg("diylc_delete_selection", "Delete all currently selected components.", noArgs(), args -> {
       engine().deleteSelection();
       return "Deleted selection.";

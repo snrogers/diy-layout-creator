@@ -112,6 +112,7 @@ one is open.
 | `diylc_render_png` | Render to a PNG **written to a local file** (path returned as text; no CDN upload); `fit` (canvas/content), `zoom`, `width`/`height`, `margin` frame the output; `path` names the file; `returnImage` opts back into MCP image content |
 | `diylc_add_component` | Place a component — one point for single-click types, two+ for point-by-point (resistors, wires) |
 | `diylc_set_property` | Set a property by editor name (`Value`, `Color`, …) on the selection; parses typed values (measures, enums) |
+| `diylc_set_control_points` | Reposition an existing component's control points by name — 2 points set the endpoints (handles interpolated), up to one per control point for full geometry |
 | `diylc_delete_selection` | Delete selected components |
 | `diylc_get_selection` / `diylc_select_all` / `diylc_select_matching` | Selection management |
 | `diylc_group_selection` / `diylc_ungroup_selection` | Grouping |

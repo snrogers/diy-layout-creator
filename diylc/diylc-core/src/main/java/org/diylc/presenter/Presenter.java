@@ -648,6 +648,15 @@ public class Presenter implements IPlugInPort {
     }
   }
 
+  /**
+   * Dispatches PROJECT_MODIFIED (driving undo, dirty flag and repaint) for a change made directly
+   * to the project model, outside the mouse/keyboard flows - used by headless front-ends like the
+   * MCP server. Pass a clone of the project taken before the change; no-op if nothing changed.
+   */
+  public void notifyProjectModified(Project oldProject, String action) {
+    notifyProjectModifiedIfNeeded(oldProject, action, true, true);
+  }
+
   private void notifyProjectModifiedIfNeeded(Project oldProject, String action, boolean clearContinuityArea, boolean repaint) {
     // Notify the listeners.
     if (oldProject == null || !currentProject.equals(oldProject)) {
