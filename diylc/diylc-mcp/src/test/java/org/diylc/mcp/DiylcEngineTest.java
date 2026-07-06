@@ -185,6 +185,66 @@ public class DiylcEngineTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  public void setControlPointsRepairsWireEndpoints() throws Exception {
+    // The repair use case: a wire endpoint missed its pad; move both endpoints without
+    // delete + re-place. Handles (cp1, cp2) must be interpolated strictly between the new
+    // endpoints, not stacked on them.
+    engine.addComponent("Hookup Wire", new int[][] {{0, 0}, {50, 50}});
+    List<Map<String, Object>> components =
+        (List<Map<String, Object>>) engine.describeProject().get("components");
+    String name = (String) components.get(0).get("name");
+
+    Map<String, Object> updated = engine.setControlPoints(name, new int[][] {{10, 0}, {100, 0}});
+
+    List<Map<String, Object>> cps = (List<Map<String, Object>>) updated.get("controlPoints");
+    assertEquals(4, cps.size());
+    assertEquals(10.0, (double) cps.get(0).get("x"), 0.001);
+    assertEquals(100.0, (double) cps.get(3).get("x"), 0.001);
+    double h1 = (double) cps.get(1).get("x");
+    double h2 = (double) cps.get(2).get("x");
+    assertTrue("handles must sit strictly between the endpoints: " + h1 + ", " + h2,
+        h1 > 10.0 && h1 < 100.0 && h2 > 10.0 && h2 < 100.0 && h1 < h2);
+    // The edit must flag the project dirty (drives the headed title-bar asterisk and save prompts).
+    assertTrue("project should be modified after a geometry edit", engine.isModified());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void setControlPointsMapsFullPointListOneToOne() throws Exception {
+    engine.addComponent("Hookup Wire", new int[][] {{0, 0}, {50, 50}});
+    String name = (String) ((List<Map<String, Object>>) engine.describeProject()
+        .get("components")).get(0).get("name");
+
+    Map<String, Object> updated =
+        engine.setControlPoints(name, new int[][] {{0, 0}, {60, 0}, {60, 40}, {100, 40}});
+
+    List<Map<String, Object>> cps = (List<Map<String, Object>>) updated.get("controlPoints");
+    int[][] want = {{0, 0}, {60, 0}, {60, 40}, {100, 40}};
+    for (int i = 0; i < want.length; i++) {
+      assertEquals(want[i][0], (double) cps.get(i).get("x"), 0.001);
+      assertEquals(want[i][1], (double) cps.get(i).get("y"), 0.001);
+    }
+  }
+
+  @Test
+  public void setControlPointsValidatesNameAndCount() {
+    engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
+    try {
+      engine.setControlPoints("NoSuchComponent", new int[][] {{0, 0}, {10, 10}});
+      org.junit.Assert.fail("expected unknown-name error");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("No component named"));
+    }
+    try {
+      engine.setControlPoints("R1", new int[][] {{0, 0}, {10, 10}, {20, 20}});
+      org.junit.Assert.fail("expected point-count error (R1 has 2 control points)");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("control point"));
+    }
+  }
+
+  @Test
   public void openProjectReturnsNoWarningsForCleanFile() throws Exception {
     engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
     Path file = Files.createTempDirectory("diylc-open-test").resolve("clean.diy");

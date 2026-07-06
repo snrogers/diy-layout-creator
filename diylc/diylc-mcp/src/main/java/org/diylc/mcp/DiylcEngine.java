@@ -490,7 +490,9 @@ public class DiylcEngine {
       c.setControlPoint(end, n - 1);
       for (int i = 1; i < n - 1; i++) {
         Point2D p;
-        if (points.length > i) {
+        // points[points.length - 1] is the endpoint, already applied above - only indices strictly
+        // before it are intermediates.
+        if (i < points.length - 1) {
           p = new Point2D.Double(points[i][0], points[i][1]);
         } else {
           double t = (double) i / (n - 1);
@@ -500,6 +502,41 @@ public class DiylcEngine {
         c.setControlPoint(p, i);
       }
     }
+  }
+
+  /**
+   * Repositions an existing component's control points, addressed by component name
+   * (case-insensitive). Two points set the electrical endpoints with intermediate curve handles
+   * interpolated; more map 1:1 from the start (any remainder interpolated), up to the component's
+   * control point count. Dispatches a project-modified event, so headed sessions get undo/repaint
+   * and the file is flagged dirty. Returns the component's post-edit description.
+   */
+  public Map<String, Object> setControlPoints(String name, int[][] points) {
+    IDIYComponent<?> target = null;
+    for (IDIYComponent<?> c : presenter.getCurrentProject().getComponents()) {
+      if (c.getName() != null && c.getName().equalsIgnoreCase(name)) {
+        target = c;
+        break;
+      }
+    }
+    if (target == null) {
+      throw new IllegalArgumentException("No component named '" + name + "'.");
+    }
+    int n = target.getControlPointCount();
+    int min = Math.min(2, n);
+    if (points == null || points.length < min || points.length > n) {
+      throw new IllegalArgumentException("'" + target.getName() + "' has " + n
+          + " control point(s); supply between " + min + " (endpoints) and " + n
+          + " points, got " + (points == null ? 0 : points.length) + ".");
+    }
+    Project oldProject = presenter.getCurrentProject().clone();
+    if (n == 1) {
+      target.setControlPoint(new Point2D.Double(points[0][0], points[0][1]), 0);
+    } else {
+      applyRequestedControlPoints(List.of(target), points);
+    }
+    presenter.notifyProjectModified(oldProject, "Set Control Points");
+    return describeComponent(target);
   }
 
   /**
