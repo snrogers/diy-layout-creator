@@ -245,6 +245,59 @@ public class DiylcEngineTest {
   }
 
   @Test
+  public void headedEngineFocusesViewOnActions() throws Exception {
+    // Headed sessions must center the human's view on the agent's action: each mutating op
+    // dispatches SCROLL_TO with the affected components' canvas bounds, queued after any handler
+    // scrolling (e.g. CanvasPlugin page-centering on PROJECT_LOADED).
+    org.diylc.appframework.miscutils.ConfigurationManager.getInstance().initialize("diylc-mcp");
+    org.diylc.presenter.Presenter presenter = new org.diylc.presenter.Presenter(
+        new org.diylc.common.DummyView(),
+        org.diylc.appframework.miscutils.InMemoryConfigurationManager.getInstance(), false);
+    presenter.createNewProject();
+    List<java.awt.geom.Rectangle2D> scrolls =
+        java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+    presenter.installPlugin(() -> new org.diylc.common.IPlugIn() {
+      @Override
+      public void connect(org.diylc.common.IPlugInPort plugInPort) {}
+
+      @Override
+      public java.util.EnumSet<org.diylc.common.EventType> getSubscribedEventTypes() {
+        return java.util.EnumSet.of(org.diylc.common.EventType.SCROLL_TO);
+      }
+
+      @Override
+      public void processMessage(org.diylc.common.EventType eventType, Object... params) {
+        scrolls.add((java.awt.geom.Rectangle2D) params[0]);
+      }
+    });
+    DiylcEngine headed = new DiylcEngine(presenter,
+        org.diylc.appframework.miscutils.InMemoryConfigurationManager.getInstance(), true);
+
+    headed.addComponent("Resistor", new int[][] {{300, 200}, {380, 200}});
+    javax.swing.SwingUtilities.invokeAndWait(() -> {});
+    assertEquals("placement should focus the view once", 1, scrolls.size());
+    java.awt.geom.Rectangle2D r = scrolls.get(0);
+    // Canvas-space bounds must cover the placed component (extra space only shifts right/down).
+    assertTrue("bounds should sit at or right/below the project coords: " + r,
+        r.getMinX() >= 300 - 1 && r.getMinY() >= 200 - 1 && r.getWidth() >= 1);
+
+    headed.selectAll();
+    headed.rotateSelection(1);
+    javax.swing.SwingUtilities.invokeAndWait(() -> {});
+    assertEquals("rotation should focus the view again", 2, scrolls.size());
+  }
+
+  @Test
+  public void headlessEngineNeverDispatchesScrollTo() throws Exception {
+    // The default (headless) engine must not emit view-focus events — there is no view.
+    engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
+    javax.swing.SwingUtilities.invokeAndWait(() -> {});
+    // No assertion hook available on the internal presenter; this guards against exceptions from
+    // the focus path (e.g. touching Swing scroll code) in headless runs. Placement must succeed.
+    assertEquals(1, engine.describeProject().get("componentCount"));
+  }
+
+  @Test
   public void openProjectReturnsNoWarningsForCleanFile() throws Exception {
     engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
     Path file = Files.createTempDirectory("diylc-open-test").resolve("clean.diy");

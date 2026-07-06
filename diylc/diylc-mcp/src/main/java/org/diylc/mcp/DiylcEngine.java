@@ -69,6 +69,8 @@ public class DiylcEngine {
   private final Presenter presenter;
   // The same config manager the Presenter reads — so our extra-space check mirrors scalePoint exactly.
   private final IConfigurationManager<?> configManager;
+  // True when a live view is attached: after each action, focus the view on the affected components.
+  private final boolean headed;
 
   /** Headless: own Presenter over a DummyView, fresh empty project. */
   public DiylcEngine() {
@@ -79,12 +81,14 @@ public class DiylcEngine {
     // importVariantsAndBlocks=false: don't touch the user's on-disk DIYLC config in a server.
     this.presenter = new Presenter(new DummyView(), configManager, false);
     this.presenter.createNewProject();
+    this.headed = false;
   }
 
   /** Headed: drive an existing Presenter (e.g. {@code mainFrame.getPresenter()}). */
-  private DiylcEngine(Presenter presenter, IConfigurationManager<?> configManager) {
+  DiylcEngine(Presenter presenter, IConfigurationManager<?> configManager, boolean headed) {
     this.presenter = presenter;
     this.configManager = configManager;
+    this.headed = headed;
   }
 
   /**
@@ -92,7 +96,7 @@ public class DiylcEngine {
    * builds its Presenter over {@link ConfigurationManager#getInstance()}, so pass that here.
    */
   public static DiylcEngine forPresenter(Presenter presenter) {
-    return new DiylcEngine(presenter, ConfigurationManager.getInstance());
+    return new DiylcEngine(presenter, ConfigurationManager.getInstance(), true);
   }
 
   // --- Project lifecycle -------------------------------------------------------------------------
@@ -109,6 +113,9 @@ public class DiylcEngine {
   public List<String> openProject(String path) throws Exception {
     List<String> warnings = new ArrayList<>();
     presenter.loadProjectFromFile(path, warnings);
+    // Show the actual content, overriding CanvasPlugin's page-centering on PROJECT_LOADED — the
+    // board is often nowhere near the page center.
+    focusView(presenter.getCurrentProject().getComponents());
     return warnings;
   }
 
@@ -452,6 +459,12 @@ public class DiylcEngine {
       presenter.mouseMoved(p, false, false, false);
       presenter.mouseClicked(p, 1 /* left */, false, false, false, 1);
     }
+    List<IDIYComponent<?>> placed = new ArrayList<>();
+    for (IDIYComponent<?> c : presenter.getCurrentProject().getComponents()) {
+      if (!before.contains(c)) {
+        placed.add(c);
+      }
+    }
     if (points.length >= 2) {
       // The click flow maps 1:1 onto control points only when the component's control-point count
       // equals the click count (Resistor, Copper Trace). Multi-handle components (e.g. Hookup Wire —
@@ -460,15 +473,10 @@ public class DiylcEngine {
       // electrical terminal) lands on a fixed offset and the netlist reads an open circuit. Per the
       // tool contract, >=2 requested points means endpoint-to-endpoint placement, so override the
       // just-placed components' control points directly to honour every requested coordinate.
-      List<IDIYComponent<?>> placed = new ArrayList<>();
-      for (IDIYComponent<?> c : presenter.getCurrentProject().getComponents()) {
-        if (!before.contains(c)) {
-          placed.add(c);
-        }
-      }
       applyRequestedControlPoints(placed, points);
       presenter.refresh();
     }
+    focusView(placed);
   }
 
   /**
@@ -536,7 +544,41 @@ public class DiylcEngine {
       applyRequestedControlPoints(List.of(target), points);
     }
     presenter.notifyProjectModified(oldProject, "Set Control Points");
+    focusView(List.of(target));
     return describeComponent(target);
+  }
+
+  /**
+   * Centers the headed view on the given components — the human should see the agent's action, not
+   * wherever the canvas happened to be scrolled (or re-centered by PROJECT_LOADED). Bounds come from
+   * control points (always present, unlike painted component areas) converted to canvas space, and
+   * the scroll is queued with {@code invokeLater} so it runs AFTER any view positioning the
+   * synchronous event handlers queued during this action (e.g. CanvasPlugin's page-centering on
+   * open). No-op headless or for an empty component set.
+   */
+  private void focusView(Collection<IDIYComponent<?>> components) {
+    if (!headed || components == null || components.isEmpty()) {
+      return;
+    }
+    double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+    double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+    for (IDIYComponent<?> c : components) {
+      for (int i = 0; i < c.getControlPointCount(); i++) {
+        Point2D p = c.getControlPoint(i);
+        minX = Math.min(minX, p.getX());
+        minY = Math.min(minY, p.getY());
+        maxX = Math.max(maxX, p.getX());
+        maxY = Math.max(maxY, p.getY());
+      }
+    }
+    if (minX > maxX) {
+      return;
+    }
+    Point tl = toCanvas((int) minX, (int) minY);
+    Point br = toCanvas((int) Math.ceil(maxX), (int) Math.ceil(maxY));
+    Rectangle2D bounds = new Rectangle2D.Double(tl.x, tl.y,
+        Math.max(1, br.x - tl.x), Math.max(1, br.y - tl.y));
+    javax.swing.SwingUtilities.invokeLater(() -> presenter.scrollTo(bounds));
   }
 
   /**
@@ -558,7 +600,10 @@ public class DiylcEngine {
   }
 
   public void deleteSelection() {
+    // Capture the doomed components first so the view can show where the deletion happened.
+    List<IDIYComponent<?>> deleted = new ArrayList<>(presenter.getSelectedComponents());
     presenter.deleteSelectedComponents();
+    focusView(deleted);
   }
 
   public void groupSelection() {
@@ -571,10 +616,12 @@ public class DiylcEngine {
 
   public void rotateSelection(int direction) {
     presenter.rotateSelection(direction);
+    focusView(presenter.getSelectedComponents());
   }
 
   public void mirrorSelection(int direction) {
     presenter.mirrorSelection(direction);
+    focusView(presenter.getSelectedComponents());
   }
 
   /**
@@ -594,6 +641,9 @@ public class DiylcEngine {
           break;
         }
       }
+    }
+    if (changed > 0) {
+      focusView(selection);
     }
     return changed;
   }

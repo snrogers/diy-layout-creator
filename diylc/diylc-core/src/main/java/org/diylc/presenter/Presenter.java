@@ -657,6 +657,17 @@ public class Presenter implements IPlugInPort {
     notifyProjectModifiedIfNeeded(oldProject, action, true, true);
   }
 
+  /**
+   * Scrolls any attached canvas view to center on the given rectangle, in zoomed canvas
+   * coordinates (the same space {@link #getSelectionBounds(boolean)} returns with applyZoom).
+   * No-op when nothing subscribes to SCROLL_TO (headless).
+   */
+  public void scrollTo(Rectangle2D canvasBounds) {
+    if (canvasBounds != null) {
+      messageDispatcher.dispatchMessage(EventType.SCROLL_TO, canvasBounds);
+    }
+  }
+
   private void notifyProjectModifiedIfNeeded(Project oldProject, String action, boolean clearContinuityArea, boolean repaint) {
     // Notify the listeners.
     if (oldProject == null || !currentProject.equals(oldProject)) {
