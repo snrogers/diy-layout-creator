@@ -63,6 +63,9 @@ drive:
 - **Coordinates.** Tool coordinates are project pixels; placement converts to canvas pixels using the
   Presenter's live extra-space + zoom (`Coordinates.toCanvas`), correct no matter how the human has
   zoomed/panned, mutating no view config.
+- **View follows the agent.** After every mutating action (open, add, set_control_points,
+  set_property, rotate, mirror, delete) the viewport centers on the affected components, so the human
+  watches the agent work instead of a stale (or page-centered) region. Zoom is never changed.
 - **Window close.** The human closing the window / File→Exit ends the **session** (via a hosted exit
   hook on `MainFrame`), not the server — the agent can `start_session` again.
 
