@@ -197,6 +197,7 @@ public class DiylcEngine {
 
   /** One textual netlist per switch-position combination. */
   public List<String> getNetlist(boolean includeSwitches) throws Exception {
+    ensureComponentAreasTracked();
     List<Netlist> netlists = presenter.extractNetlists(includeSwitches);
     List<String> out = new ArrayList<>();
     if (netlists != null) {
@@ -205,6 +206,27 @@ public class DiylcEngine {
       }
     }
     return out;
+  }
+
+  /**
+   * Copper Trace (and other area-based) connectivity is derived from DrawingManager's
+   * component-area cache, which only a paint pass populates - so a headless session that never
+   * rendered saw trace-wired nets as empty/incomplete (control-point IContinuity components like
+   * Hookup Wire were unaffected). Run one offscreen paint before consuming continuity areas. The
+   * 1x1 backing image keeps rasterization free; the clip must be cleared because components
+   * skip drawing entirely when their points fall outside it (checkPointsClipped), and area
+   * tracking happens during draw. Repeat calls are cheap: already-tracked components keep their
+   * cached areas and skip re-tracking.
+   */
+  private void ensureComponentAreasTracked() {
+    BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+    Graphics2D g2d = image.createGraphics();
+    try {
+      g2d.setClip(null);
+      presenter.draw(g2d, EnumSet.noneOf(DrawOption.class), null, null, null, null);
+    } finally {
+      g2d.dispose();
+    }
   }
 
   /** Render the current project to a PNG and return it base64-encoded. */
