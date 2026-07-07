@@ -260,7 +260,12 @@ public class DiylcEngine {
    * {@link #renderPngToFile(RenderOpts, Path)} writes them to disk.
    */
   public byte[] renderPngBytes(RenderOpts o) throws Exception {
-    EnumSet<DrawOption> options = EnumSet.of(DrawOption.ANTIALIASING, DrawOption.CONTROL_POINTS);
+    // Export semantics, like the GUI's image export (ProjectDrawingProvider): ANTIALIASING only, no
+    // CONTROL_POINTS. That option is for the live canvas - with it, DrawingManager stamps selected
+    // components' control-point markers over their graphics, so a render taken right after
+    // add_component (which leaves the new component selected, per the GUI slot flow) showed the
+    // just-placed wire punctured by hollow marker squares. Renders must not depend on selection.
+    EnumSet<DrawOption> options = EnumSet.of(DrawOption.ANTIALIASING);
     if (o.includeGrid) {
       options.add(DrawOption.GRID);
     }
