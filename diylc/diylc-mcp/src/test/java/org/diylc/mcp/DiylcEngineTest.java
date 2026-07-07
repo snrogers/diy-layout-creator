@@ -145,6 +145,23 @@ public class DiylcEngineTest {
   }
 
   @Test
+  public void renderIsIndependentOfSelection() throws Exception {
+    // add_component leaves the just-placed component selected (GUI slot flow). When the render
+    // passed DrawOption.CONTROL_POINTS, DrawingManager stamped selected-control-point markers over
+    // the component's graphics, so a wire rendered right after placement showed hollow squares
+    // along its stroke until the next selection change. Renders are exports (like the GUI's image
+    // export): selection state must not affect the output.
+    engine.addComponent("Pin Header", new int[][] {{140, 240}});
+    engine.addComponent("Hookup Wire", new int[][] {{200, 240}, {320, 240}});
+    String justPlaced = engine.renderPngBase64(false);
+
+    engine.selectMatching("PH1");
+    String afterSelectionChange = engine.renderPngBase64(false);
+
+    assertEquals(justPlaced, afterSelectionChange);
+  }
+
+  @Test
   public void renderFitContentCropsToContentNotFullPage() throws Exception {
     // A single resistor on the default 29x21cm page: full-canvas render is huge, content-crop is
     // small. The default (canvas) path is exercised by rendersNonEmptyPng.
