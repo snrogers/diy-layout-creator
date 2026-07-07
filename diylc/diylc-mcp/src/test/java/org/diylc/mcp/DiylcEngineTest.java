@@ -162,6 +162,28 @@ public class DiylcEngineTest {
   }
 
   @Test
+  public void netlistSeesCopperTraceConnectivityWithoutRendering() throws Exception {
+    // Copper Trace connectivity is a painted continuity area (it is not IContinuity), derived from
+    // DrawingManager's component-area cache - which only a paint pass fills. A headless session
+    // that never rendered saw trace-wired nets as empty, indistinguishable from a disconnected
+    // board, until a render_png happened to run first. get_netlist must not need that incantation.
+    engine.addComponent("Resistor", new int[][] {{60, 60}, {140, 60}});
+    engine.addComponent("Resistor", new int[][] {{200, 60}, {280, 60}});
+    engine.addComponent("Copper Trace", new int[][] {{140, 60}, {200, 60}});
+
+    List<String> netlists = engine.getNetlist(false);
+    assertEquals(1, netlists.size());
+    boolean joined = false;
+    for (String line : netlists.get(0).split("\n")) {
+      if (line.contains("R1.2") && line.contains("R2.1")) {
+        joined = true;
+      }
+    }
+    assertTrue("R1.2 and R2.1 must share a net through the copper trace, without rendering first",
+        joined);
+  }
+
+  @Test
   public void renderFitContentCropsToContentNotFullPage() throws Exception {
     // A single resistor on the default 29x21cm page: full-canvas render is huge, content-crop is
     // small. The default (canvas) path is exercised by rendersNonEmptyPng.
